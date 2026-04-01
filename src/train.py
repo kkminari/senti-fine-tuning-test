@@ -43,7 +43,7 @@ from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 #   prepare_model_for_kbit_training: 양자화된 모델을 학습 가능하게 준비
 #     → gradient checkpointing 활성화, 일부 레이어 FP32 변환 등
 
-from trl import SFTTrainer
+from trl import SFTTrainer, SFTConfig
 # trl: Transformer Reinforcement Learning 라이브러리
 # SFTTrainer: Supervised Fine-Tuning 전용 Trainer
 #   → 일반 Trainer와 차이: 텍스트 데이터를 자동으로 토크나이징하고
@@ -154,9 +154,9 @@ def main():
         quantization_config=bnb_config,
         device_map="auto",               # GPU가 여러 장이면 자동으로 분산 배치
         trust_remote_code=True,
-        attn_implementation="flash_attention_2",  # FlashAttention-2: 메모리 효율적인 어텐션 연산
-                                                  # → 메모리 사용량 ↓, 속도 ↑
-                                                  # → 미설치 시 이 줄 제거해도 동작함 (느려질 뿐)
+        attn_implementation="sdpa",  # PyTorch Scaled Dot-Product Attention (FlashAttention 내장)
+                                     # → torch 2.x 이상에서 자동으로 최적 커널 선택
+                                     # → 별도 패키지 설치 불필요
     )
     # prepare_model_for_kbit_training:
     #   양자화된 모델을 학습 가능하게 만드는 전처리
@@ -175,7 +175,11 @@ def main():
     train_cfg = config["training"]
     output_dir = config["output"]["output_dir"]
 
-    training_args = TrainingArguments(
+    # warmup_ratio → warmup_steps 변환 (trl 1.0에서 warmup_ratio deprecated)
+    total_steps = (len(dataset["train"]) // (train_cfg["per_device_train_batch_size"] * train_cfg["gradient_accumulation_steps"])) * train_cfg["num_train_epochs"]
+    warmup_steps = int(total_steps * train_cfg["warmup_ratio"])
+
+    training_args = SFTConfig(
         output_dir=output_dir,
         num_train_epochs=train_cfg["num_train_epochs"],
         per_device_train_batch_size=train_cfg["per_device_train_batch_size"],
@@ -183,7 +187,7 @@ def main():
         gradient_accumulation_steps=train_cfg["gradient_accumulation_steps"],
         learning_rate=train_cfg["learning_rate"],
         lr_scheduler_type=train_cfg["lr_scheduler_type"],
-        warmup_ratio=train_cfg["warmup_ratio"],
+        warmup_steps=warmup_steps,
         optim=train_cfg["optim"],
         fp16=train_cfg["fp16"],
         bf16=train_cfg["bf16"],
@@ -195,6 +199,8 @@ def main():
         greater_is_better=train_cfg["greater_is_better"],
         report_to=train_cfg["report_to"],
         seed=data_cfg["seed"],
+        dataset_text_field="text",
+        max_length=max_seq_length,
     )
 
     # === 7. SFTTrainer 구성 ===
@@ -211,9 +217,7 @@ def main():
         args=training_args,
         train_dataset=dataset["train"],
         eval_dataset=dataset["validation"],
-        tokenizer=tokenizer,
-        dataset_text_field="text",
-        max_seq_length=max_seq_length,
+        processing_class=tokenizer,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=2)],
     )
 

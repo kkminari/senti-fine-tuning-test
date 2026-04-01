@@ -37,16 +37,19 @@ lora:
   lora_alpha: 32       # 스케일링 팩터: 실제 적용되는 스케일 = alpha / r = 32/16 = 2.0
                        # - 보통 r의 2배로 설정하는 것이 관례
                        # - 값이 크면 LoRA 영향력 ↑, 작으면 원래 모델에 가까움
-  lora_dropout: 0.05   # LoRA 레이어에 적용되는 드롭아웃 (과적합 방지)
-                       # - 데이터가 150건으로 적어서 필수
-                       # - 0.05~0.1 범위가 일반적, 너무 높으면 학습 자체가 안 됨
+  lora_dropout: 0.1    # LoRA 레이어에 적용되는 드롭아웃 (과적합 방지)
+                       # - 데이터가 150건으로 매우 적어서 강하게 설정
+                       # - 0.05에서 과적합 징후 확인되어 0.1로 상향
   target_modules:      # LoRA를 적용할 레이어 선택
     - q_proj            # Query: "이 토큰이 어떤 정보를 찾고 있는지"
     - k_proj            # Key: "이 토큰이 어떤 정보를 제공하는지"
     - v_proj            # Value: "실제로 전달할 정보"
     - o_proj            # Output: Attention 결과를 합치는 레이어
-                       # → Attention의 핵심 4개 레이어만 학습 (MLP는 동결)
-                       # → 이유: 감성분석은 "문맥 이해"가 핵심이므로 Attention에 집중
+    - gate_proj         # MLP Gate: 정보 흐름을 제어하는 게이트
+    - up_proj           # MLP Up: 차원을 확장하여 비선형 변환
+    - down_proj         # MLP Down: 확장된 차원을 다시 축소
+                       # → Attention(문맥 이해) + MLP(판단/분류) 모두 학습
+                       # → 감성 "판단"은 MLP에서 일어나므로 분류 성능 향상 기대
   bias: "none"         # bias 파라미터는 학습하지 않음 (메모리 절약)
   task_type: "CAUSAL_LM"  # 인과적 언어모델 (다음 토큰 예측) 방식
 
@@ -54,15 +57,15 @@ lora:
 # 학습 하이퍼파라미터
 # ============================================================
 training:
-  num_train_epochs: 5          # 전체 데이터를 5번 반복 학습
-                               # - 데이터가 150건(train 120건)으로 매우 적음
-                               # - 3 에폭이면 학습 부족, 10 에폭이면 과적합
-                               # - early stopping이 있으니 5로 넉넉히 설정
+  num_train_epochs: 4          # 전체 데이터를 4번 반복 학습
+                               # - v1(5에폭): 과적합, v2(3에폭): 학습 부족
+                               # - 4에폭으로 정확도와 토픽 추출 균형점 탐색
   per_device_train_batch_size: 4   # GPU 1장당 한번에 처리하는 샘플 수
   per_device_eval_batch_size: 4
-  gradient_accumulation_steps: 4   # 4번의 미니배치를 모아서 1번 업데이트
-                                   # → 실효 배치 사이즈 = 4 x 4 = 16
-                                   # → 배치가 클수록 학습 안정적, but GPU 메모리 한계로 accumulation 사용
+  gradient_accumulation_steps: 2   # 2번의 미니배치를 모아서 1번 업데이트
+                                   # → 실효 배치 사이즈 = 4 x 2 = 8
+                                   # → 에폭당 스텝 수: 120/8 = 15스텝 (기존 7.5스텝에서 2배)
+                                   # → 더 세밀한 가중치 업데이트 가능
   learning_rate: 2.0e-4        # 0.0002 — QLoRA 파인튜닝의 표준 학습률
                                # - Full fine-tuning은 보통 1e-5~5e-5
                                # - LoRA는 파라미터가 적어서 더 높은 lr 사용 가능
