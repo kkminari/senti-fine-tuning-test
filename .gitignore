@@ -6,3 +6,6 @@ outputs/
 checkpoints/
 *.pt
 *.bin
+*.safetensors
+.DS_Store
+.ipynb_checkpoints/
