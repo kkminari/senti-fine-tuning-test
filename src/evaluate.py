@@ -127,7 +127,8 @@ def print_confusion_matrix(gold: list[str], pred: list[str]):
     print("[2-2] Confusion Matrix")
     print(f"{'='*60}")
     # 헤더
-    header = f"{'정답\\예측':>14}" + "".join(f"{l:>12}" for l in labels)
+    col_name = "정답\\예측"
+    header = f"{col_name:>14}" + "".join(f"{l:>12}" for l in labels)
     print(header)
     print("-" * len(header))
     for i, label in enumerate(labels):

@@ -16,6 +16,7 @@
 
 import re
 import json
+import datasets
 from datasets import load_dataset, DatasetDict
 from transformers import AutoTokenizer
 
@@ -119,6 +120,9 @@ def load_and_split(
     """
     ds = load_dataset(dataset_name, split="train")
 
+    # stratify_by_column은 ClassLabel 타입이 필요하므로 캐스팅
+    ds = ds.class_encode_column("sentiment")
+
     # 1단계: train+val / test 분리
     split1 = ds.train_test_split(
         test_size=test_ratio,
@@ -134,11 +138,22 @@ def load_and_split(
         stratify_by_column="sentiment",
     )
 
-    return DatasetDict({
+    result = DatasetDict({
         "train": split2["train"],
         "validation": split2["test"],
         "test": split1["test"],
     })
+
+    # ClassLabel을 다시 문자열로 변환 (다른 코드에서 문자열로 사용)
+    label_names = result["train"].features["sentiment"].names
+    for split in result:
+        result[split] = result[split].map(
+            lambda x: {"sentiment": label_names[x["sentiment"]]}
+        )
+        # features에서 ClassLabel을 Value로 되돌림
+        result[split] = result[split].cast_column("sentiment", datasets.Value("string"))
+
+    return result
 
 
 def strip_thinking(text: str) -> str:
